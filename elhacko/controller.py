@@ -87,5 +87,7 @@ if __name__ == "__main__":
             controller.get_img()
             controller.save_img()
             controller.send_img()
+        except Exception as e:
+            sm_logger.error("Exception: %s" % e)
         finally:
             controller.reset()
