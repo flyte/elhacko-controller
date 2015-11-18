@@ -3,6 +3,7 @@ import logging
 import argparse
 import traceback
 from time import sleep
+from ConfigParser import SafeConfigParser
 
 import zmq
 import zerorpc
@@ -14,8 +15,20 @@ crochet.setup()  # Must be called before any twisted/autobahn imports
 from autobahn.twisted.wamp import Application
 
 
+CONFIG_SECTION = "elhacko"
+
 logger.setLevel(logging.INFO)
 ws_app = Application()
+
+
+def get_config(path):
+    """
+    Read the configuration from an ini file and return the configuration in a dict.
+    """
+    cp = SafeConfigParser()
+    cp.read(path)
+    options = "qr_uri qr_prefix img_cap_uri ws_uri ws_realm db_uri".split()
+    return {option: unicode(cp.get(CONFIG_SECTION, option)) for option in options}
 
 
 @crochet.run_in_reactor
@@ -53,7 +66,7 @@ class ElhackoController:
     uuid = None
     img_data = None
 
-    def __init__(self, qr_uri, qr_prefix, img_cap_uri, ws_uri, ws_realm):
+    def __init__(self, qr_uri, qr_prefix, img_cap_uri, ws_uri, ws_realm, db_uri):
         self.machine = Machine(
             model=self,
             states=ElhackoController.states,
@@ -79,6 +92,9 @@ class ElhackoController:
         # Websocket set up
         self.ws_uri = ws_uri
         self.ws_realm = ws_realm
+
+        # Database set up
+        self.db_uri = db_uri
 
     def get_uuid(self):
         """
@@ -121,21 +137,12 @@ class ElhackoController:
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("qr_uri")
-    p.add_argument("qr_prefix")
-    p.add_argument("img_cap_uri")
-    p.add_argument("ws_uri", type=unicode)
-    p.add_argument("ws_realm", type=unicode)
+    p.add_argument("--config", default="elhacko.ini")
     args = p.parse_args()
 
-    controller = ElhackoController(
-        args.qr_uri,
-        args.qr_prefix,
-        args.img_cap_uri,
-        args.ws_uri,
-        args.ws_realm
-    )
-    start_ws_app(args.ws_uri, args.ws_realm)
+    config = get_config(args.config)
+    controller = ElhackoController(**config)
+    start_ws_app(config["ws_uri"], config["ws_realm"])
 
     while True:
         try:
