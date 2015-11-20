@@ -1,9 +1,13 @@
 import sys
+import os
 import logging
 import argparse
 import traceback
 from time import sleep
 from ConfigParser import SafeConfigParser
+from io import BytesIO
+from ftplib import FTP
+from time import time
 
 import zmq
 import zerorpc
@@ -27,7 +31,8 @@ def get_config(path):
     """
     cp = SafeConfigParser()
     cp.read(path)
-    options = "qr_uri qr_prefix img_cap_uri ws_uri ws_realm db_uri".split()
+    options = ("qr_uri qr_prefix img_cap_uri ws_uri ws_realm db_uri ftp_host ftp_user ftp_pass "
+               "ftp_path img_srv_uri original_img_path".split())
     return {option: unicode(cp.get(CONFIG_SECTION, option)) for option in options}
 
 
@@ -66,7 +71,9 @@ class ElhackoController:
     uuid = None
     img_data = None
 
-    def __init__(self, qr_uri, qr_prefix, img_cap_uri, ws_uri, ws_realm, db_uri):
+    def __init__(
+        self, qr_uri, qr_prefix, img_cap_uri, ws_uri, ws_realm, db_uri,
+        ftp_host, ftp_user, ftp_pass, ftp_path, img_srv_uri, original_img_path):
         self.machine = Machine(
             model=self,
             states=ElhackoController.states,
@@ -96,6 +103,14 @@ class ElhackoController:
         # Database set up
         self.db_uri = db_uri
 
+        # FTP set up
+        self.ftp_host = ftp_host
+        self.ftp_user = ftp_user
+        self.ftp_pass = ftp_pass
+        self.ftp_path = ftp_path
+        self.img_srv_uri = img_srv_uri
+        self.original_img_path = original_img_path
+
     def get_uuid(self):
         """
         Waits for the QR reading service to produce a UUID.
@@ -123,16 +138,25 @@ class ElhackoController:
         self.got_img()
 
     def save_img(self):
-        sleep(1)
+        """
+        FTP the image to the webserver and set self.img_uri to the path at which the image is served
+        """
+        img = BytesIO(self.img_data["bytes"])
+        ftp = FTP(self.ftp_host, self.ftp_user, self.ftp_pass)
+        ftp.cwd(os.path.join(self.ftp_path, self.original_img_path))
+        filename = "%s.%s" % (str(int(time())), self.img_data["ext"])
+        ftp.storbinary("STOR %s" % filename, img)
+        self.img_uri = "%s/%s/%s" % (self.img_srv_uri, self.original_img_path, filename)
         self.saved_img()
 
     def send_img(self):
-        ws_publish(self.uuid, "Here is the picture..")
+        ws_publish(self.uuid, self.img_uri)
         self.sent_img()
 
     def reset(self):
         self.uuid = None
         self.img_data = None
+        self.img_uri = None
 
 
 if __name__ == "__main__":
